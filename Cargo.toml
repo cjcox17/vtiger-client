@@ -1,6 +1,6 @@
 [package]
 name = "vtiger-client"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = [" <cjcox17@icloud.com>"]
 description = "A Rust client library for the Vtiger CRM REST API"
