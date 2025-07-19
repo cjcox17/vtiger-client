@@ -1,0 +1,24 @@
+[package]
+name = "vtiger-client"
+version = "0.1.0"
+edition = "2024"
+authors = [" <cjcox17@icloud.com>"]
+description = "A Rust client library for the Vtiger CRM REST API"
+homepage = "https://github.com/cjcox17/vtiger-client"
+repository = "https://github.com/cjcox17/vtiger-client"
+license = "MIT OR Apache-2.0"
+keywords = ["vtiger", "crm", "rest", "api"]
+categories = ["api-bindings", "web-programming::http-client"]
+readme = "README.md"
+
+[dependencies]
+reqwest = { version = "0.12.22", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+tokio = { version = "1.46.1", features = ["full"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = { version = "1.0.140", features = ["preserve_order"] }
+csv = "1.3.1"
+futures = "0.3.31"
+indexmap = { version = "2.10.0", features = ["serde"] }
