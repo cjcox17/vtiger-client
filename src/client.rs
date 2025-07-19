@@ -384,7 +384,6 @@ impl Vtiger {
                     "SELECT count(*) from {} WHERE {} LIKE '{}-%';",
                     module, column, query_filter
                 );
-                println!("Executing query: {}", query);
 
                 let count = match self.query(&query).await {
                     Ok(result) => match result.result {
