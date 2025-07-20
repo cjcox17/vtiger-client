@@ -2,6 +2,7 @@ use csv::{Writer, WriterBuilder};
 use futures::stream::{self, StreamExt};
 use indexmap::IndexMap;
 use reqwest::{self, Response};
+use std::collections::HashMap;
 use std::{fs::File, io::Write};
 use tokio::sync::mpsc;
 
@@ -610,7 +611,7 @@ impl Vtiger {
         module_name: &str,
         fields: &[(&str, &str)],
     ) -> Result<VtigerResponse, reqwest::Error> {
-        let fields_map: IndexMap<&str, &str> = fields.iter().cloned().collect();
+        let fields_map: HashMap<&str, &str> = fields.iter().cloned().collect();
         let element_json = serde_json::to_string(&fields_map)
             .expect("Failed to serialize string IndexMap to JSON");
 
@@ -793,6 +794,110 @@ impl Vtiger {
     pub async fn query(&self, query: &str) -> Result<VtigerQueryResponse, reqwest::Error> {
         let response = self.get(&format!("/query"), &[("query", query)]).await?;
         let vtiger_response = response.json::<VtigerQueryResponse>().await?;
+        Ok(vtiger_response)
+    }
+
+    /// Update a record in the database
+    ///
+    /// This function takes a single record that must include an ID and all
+    /// required fields on the module in order to successfulyy update the record.
+    /// It's recommended to use the revise function instead of this one.
+    ///
+    /// # Arguments
+    ///
+    /// * `fields` - A vector of tuples containing the field name and value to update.
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`VtigerResponse`] containing a message indicating success or failure,
+    /// and the result if successful.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use vtiger_client::Vtiger;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let vtiger = Vtiger::new("https://demo.vtiger.com", "admin", "key");
+    ///
+    ///     // Query with conditions
+    ///     let update_fields = vec![
+    ///         ("id", "2x12345"),
+    ///         ("first_name", "John"),
+    ///         ("last_name", "Smith"),
+    ///         ("email", "smith@example.com"),
+    ///         ("phone", "604-555-1212"),
+    ///         ("lane", "123 Main St"),
+    ///         ("city", "Los Angeles"),
+    ///         ("state", "CA"),
+    ///         ("postal_code", "12345"),
+    ///     ];
+    ///     let response = vtiger.update(&update_fields).await?;
+    ///
+    ///     println!("Updated record: {:?}", response);
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn update(
+        &self,
+        fields: &Vec<(&str, &str)>,
+    ) -> Result<VtigerResponse, reqwest::Error> {
+        let map: HashMap<_, _> = fields.iter().cloned().collect();
+        let fields_json = serde_json::to_string(&map).unwrap();
+
+        let response = self
+            .post(&format!("/update"), &[("element", &fields_json)])
+            .await?;
+        let vtiger_response = response.json::<VtigerResponse>().await?;
+        Ok(vtiger_response)
+    }
+
+    /// Update a record in the database
+    ///
+    /// This function takes a single record that must include an ID and at least
+    /// one field to update.
+    ///
+    /// # Arguments
+    ///
+    /// * `fields` - A vector of tuples containing the field name and value to update.
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`VtigerResponse`] containing a message indicating success or failure,
+    /// and the result if successful.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use vtiger_client::Vtiger;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let vtiger = Vtiger::new("https://demo.vtiger.com", "admin", "key");
+    ///
+    ///     // Query with conditions
+    ///     let update_fields = vec![
+    ///         ("id", "2x12345"),
+    ///         ("phone", "604-555-1212"),
+    ///     ];
+    ///     let response = vtiger.revise(&update_fields).await?;
+    ///
+    ///     println!("Updated record: {:?}", response);
+    ///     Ok(())
+    /// }
+    /// ```
+    pub async fn revise(
+        &self,
+        fields: &Vec<(&str, &str)>,
+    ) -> Result<VtigerResponse, reqwest::Error> {
+        let map: HashMap<_, _> = fields.iter().cloned().collect();
+        let fields_json = serde_json::to_string(&map).unwrap();
+
+        let response = self
+            .post(&format!("/revise"), &[("element", &fields_json)])
+            .await?;
+        let vtiger_response = response.json::<VtigerResponse>().await?;
         Ok(vtiger_response)
     }
 }
