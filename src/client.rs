@@ -287,7 +287,7 @@ impl Vtiger {
     /// ```
     pub async fn describe(&self, module_name: &str) -> Result<VtigerResponse, reqwest::Error> {
         let response = self
-            .get(&format!("/describe"), &[("elementType", module_name)])
+            .get("/describe", &[("elementType", module_name)])
             .await?;
         let vtiger_response = response.json::<VtigerResponse>().await?;
         Ok(vtiger_response)
@@ -390,7 +390,7 @@ impl Vtiger {
                     Ok(result) => match result.result {
                         Some(records) => {
                             // Extract the count value directly without chaining references
-                            if let Some(first_record) = records.get(0) {
+                            if let Some(first_record) = records.first() {
                                 if let Some(count_val) = first_record.get("count") {
                                     if let Some(count_str) = count_val.as_str() {
                                         count_str.parse::<i32>().unwrap_or(0)
@@ -421,7 +421,7 @@ impl Vtiger {
             .into_iter()
             .flat_map(|(query_filter, count)| {
                 (0..count)
-                    .step_by(batch_size.clone())
+                    .step_by(batch_size)
                     .map(|offset| (query_filter.clone(), offset, batch_size))
                     .collect::<Vec<_>>()
             })
@@ -434,15 +434,15 @@ impl Vtiger {
             let mut file_json: Option<File> = None;
             let mut file_csv: Option<Writer<File>> = None;
             if format.contains(&ExportFormat::JsonLines) {
-                file_json_lines = Some(File::create("output.jsonl").unwrap());
+                file_json_lines = Some(File::create("output.jsonl")?);
             }
             if format.contains(&ExportFormat::Json) {
-                file_json = Some(File::create("output.json").unwrap());
-                file_json
-                    .as_mut()
-                    .unwrap()
-                    .write_all(b"[")
-                    .expect("Could not write JSON array start");
+                file_json = Some(File::create("output.json")?);
+                if let Some(file_json) = file_json.as_mut()
+                    && let Err(e) = file_json.write_all(b"[")
+                {
+                    eprintln!("Could not write JSON array start: {e}");
+                }
             }
             if format.contains(&ExportFormat::CSV) {
                 file_csv = Some(
@@ -451,27 +451,25 @@ impl Vtiger {
                         .quote_style(csv::QuoteStyle::Always)
                         .escape(b'\\')
                         .terminator(csv::Terminator::CRLF)
-                        .from_path("output.csv")
-                        .expect("CSV file creation failed"),
+                        .from_path("output.csv")?,
                 );
             }
             let mut count = 0;
 
             while let Some(record) = record_receiver.recv().await {
                 if let Some(ref mut file) = file_json_lines {
-                    writeln!(file, "{}", serde_json::to_string(&record).unwrap()).unwrap();
+                    writeln!(file, "{}", serde_json::to_string(&record)?)?;
                 }
                 if let Some(ref mut file) = file_json {
                     if count != 0 {
-                        write!(file, ",\n").unwrap();
+                        writeln!(file, ",")?;
                     }
-                    writeln!(file, "{}", serde_json::to_string_pretty(&record).unwrap()).unwrap();
+                    writeln!(file, "{}", serde_json::to_string_pretty(&record)?)?;
                 }
                 if let Some(ref mut file) = file_csv {
                     if count == 0 {
                         let header: Vec<&str> = record.keys().map(|k| k.as_str()).collect();
-                        file.write_record(header)
-                            .expect("Could not write CSV header record!");
+                        file.write_record(header)?;
                     }
                     let values: Vec<String> = record
                         .values()
@@ -488,8 +486,7 @@ impl Vtiger {
                             _ => "".to_string(),
                         })
                         .collect();
-                    file.write_record(values)
-                        .expect("Could not write CSV values record@");
+                    file.write_record(values)?;
                 }
                 count += 1;
                 if count % 10000 == 0 {
@@ -499,19 +496,20 @@ impl Vtiger {
             println!("Finished writing {} total records", count);
 
             if let Some(mut file) = file_json_lines {
-                file.flush().unwrap();
+                file.flush()?;
             }
 
             if let Some(mut file) = file_json {
-                write!(file, "\n]").unwrap(); // Close the JSON array
-                file.flush().unwrap();
+                write!(file, "\n]")?; // Close the JSON array
+                file.flush()?;
             }
 
             if let Some(mut file) = file_csv {
-                file.flush().unwrap();
+                file.flush()?;
             }
 
             println!("All files flushed and closed");
+            Ok::<_, std::io::Error>(())
         });
 
         stream::iter(work_items)
@@ -524,20 +522,20 @@ impl Vtiger {
                     );
                     println!("Executing query: {}", query);
 
-                    if let Ok(result) = self.query(&query).await {
-                        if let Some(records) = result.result {
-                            let record_count = records.len();
-                            for record in records {
-                                if let Err(_) = sender.send(record) {
-                                    eprintln!("Failed to send record, writer may have stopped");
-                                    break;
-                                }
+                    if let Ok(result) = self.query(&query).await
+                        && let Some(records) = result.result
+                    {
+                        let record_count = records.len();
+                        for record in records {
+                            if sender.send(record).is_err() {
+                                eprintln!("Failed to send record, writer may have stopped");
+                                break;
                             }
-                            println!(
-                                "Sent {} records from {} offset {}",
-                                record_count, query_filter, offset
-                            );
                         }
+                        println!(
+                            "Sent {} records from {} offset {}",
+                            record_count, query_filter, offset
+                        );
                     }
                     Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
                 }
@@ -548,7 +546,7 @@ impl Vtiger {
 
         drop(record_sender);
 
-        writer_task.await.unwrap();
+        let _ = writer_task.await?;
 
         Ok(())
     }
@@ -610,10 +608,10 @@ impl Vtiger {
         &self,
         module_name: &str,
         fields: &[(&str, &str)],
-    ) -> Result<VtigerResponse, reqwest::Error> {
+    ) -> Result<VtigerResponse, Box<dyn std::error::Error>> {
         let fields_map: HashMap<&str, &str> = fields.iter().cloned().collect();
         let element_json = serde_json::to_string(&fields_map)
-            .expect("Failed to serialize string IndexMap to JSON");
+            .map_err(|e| format!("Failed to serialize string IndexMap to JSON: {e}"))?;
 
         let response = self
             .post(
@@ -687,9 +685,7 @@ impl Vtiger {
     /// * The record ID format is invalid
     /// * The record doesn't exist or you don't have permission to view it
     pub async fn retrieve(&self, record_id: &str) -> Result<VtigerResponse, reqwest::Error> {
-        let response = self
-            .get(&format!("/retrieve"), &[("id", record_id)])
-            .await?;
+        let response = self.get("/retrieve", &[("id", record_id)]).await?;
         let vtiger_response = response.json::<VtigerResponse>().await?;
         Ok(vtiger_response)
     }
@@ -792,7 +788,7 @@ impl Vtiger {
     /// * Referenced fields or modules don't exist
     /// * Query exceeds time or result limits
     pub async fn query(&self, query: &str) -> Result<VtigerQueryResponse, reqwest::Error> {
-        let response = self.get(&format!("/query"), &[("query", query)]).await?;
+        let response = self.get("/query", &[("query", query)]).await?;
         let vtiger_response = response.json::<VtigerQueryResponse>().await?;
         Ok(vtiger_response)
     }
@@ -842,13 +838,11 @@ impl Vtiger {
     pub async fn update(
         &self,
         fields: &Vec<(&str, &str)>,
-    ) -> Result<VtigerResponse, reqwest::Error> {
+    ) -> Result<VtigerResponse, Box<dyn std::error::Error>> {
         let map: HashMap<_, _> = fields.iter().cloned().collect();
-        let fields_json = serde_json::to_string(&map).unwrap();
+        let fields_json = serde_json::to_string(&map)?;
 
-        let response = self
-            .post(&format!("/update"), &[("element", &fields_json)])
-            .await?;
+        let response = self.post("/update", &[("element", &fields_json)]).await?;
         let vtiger_response = response.json::<VtigerResponse>().await?;
         Ok(vtiger_response)
     }
@@ -890,13 +884,11 @@ impl Vtiger {
     pub async fn revise(
         &self,
         fields: &Vec<(&str, &str)>,
-    ) -> Result<VtigerResponse, reqwest::Error> {
+    ) -> Result<VtigerResponse, Box<dyn std::error::Error>> {
         let map: HashMap<_, _> = fields.iter().cloned().collect();
-        let fields_json = serde_json::to_string(&map).unwrap();
+        let fields_json = serde_json::to_string(&map)?;
 
-        let response = self
-            .post(&format!("/revise"), &[("element", &fields_json)])
-            .await?;
+        let response = self.post("/revise", &[("element", &fields_json)]).await?;
         let vtiger_response = response.json::<VtigerResponse>().await?;
         Ok(vtiger_response)
     }

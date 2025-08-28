@@ -1,3 +1,9 @@
+#![warn(clippy::all)]
+#![warn(clippy::cargo)]
+#![allow(clippy::multiple_crate_versions)]
+#![deny(clippy::unwrap_used)]
+#![deny(clippy::expect_used)]
+#![deny(clippy::panic)]
 //! # Vtiger Client
 //!
 //! A Rust client library for the Vtiger CRM REST API.
