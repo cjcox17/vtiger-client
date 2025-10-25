@@ -521,8 +521,19 @@ impl Vtiger {
                         module, column, query_filter, offset, batch_size
                     );
                     println!("Executing query: {}", query);
+                    let mut query_result = self.query(&query).await;
 
-                    if let Ok(result) = self.query(&query).await
+                    // If it fails, retry once
+                    if query_result.is_err() {
+                        println!(
+                            "Query Failed: {} because {}",
+                            query,
+                            &query_result.err().unwrap()
+                        );
+                        query_result = self.query(&query).await;
+                    }
+
+                    if let Ok(result) = query_result
                         && let Some(records) = result.result
                     {
                         let record_count = records.len();
